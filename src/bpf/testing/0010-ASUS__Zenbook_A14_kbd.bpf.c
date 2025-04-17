@@ -8,10 +8,10 @@
 #include <bpf/bpf_tracing.h>
 
 #define VID_ASUS 0x0B05
-#define PID_VIVOBOOK_S15_S5507_KEYBOARD 0x4543
+#define PID_ZENBOOK_A14_KEYBOARD 0x0220
 
 HID_BPF_CONFIG(
-       HID_DEVICE(BUS_I2C, HID_GROUP_GENERIC, VID_ASUS, PID_VIVOBOOK_S15_S5507_KEYBOARD)
+       HID_DEVICE(BUS_I2C, HID_GROUP_GENERIC, VID_ASUS, PID_ZENBOOK_A14_KEYBOARD)
 );
 
 enum work_type {
@@ -152,7 +152,8 @@ int BPF_PROG(handle_fkeys_fix_event, struct hid_bpf_ctx *hid_ctx)
 	 *
 	 *   F8  (Emoji key)      : 0x7E
 	 *   F9  (Microphone mute): 0x7C
-	 *   F10 (Microphone mode): 0xCB
+	 *   F10 (Camera On/Off)  : 0x85
+	 *   F11 (Touchpad On/Off): 0x6b
 	 *   F12 (MyASUS)         : 0x86
 	 *   Fn+F (Fan profile)   : 0x9D
 	 *
@@ -218,7 +219,7 @@ int BPF_PROG(handle_hw_request, struct hid_bpf_ctx *hid_ctx, unsigned char repor
 	return 0;
 }
 
-HID_BPF_OPS(vivobook_s15) = {
+HID_BPF_OPS(zenbook_a14) = {
 	.hid_device_event = (void *)handle_fkeys_fix_event,
 	.hid_hw_request = (void *)handle_hw_request,
 };
