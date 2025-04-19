@@ -18,6 +18,7 @@ enum work_type {
 	WORK_TYPE_INIT,
 	WORK_TYPE_BACKLIGHT,
 	WORK_TYPE_FNLOCK,
+	WORK_TYPE_TOUCHPAD,
 	WORK_TYPE_COUNT,
 };
 
@@ -35,6 +36,7 @@ struct {
 
 static __u8 current_backlight_brightness = 1;
 static bool current_fn_lock = false;
+static bool current_touchpad_enable = true;
 static bool change_next_vendor_keyup = false;
 
 static void set_init_unk_1(struct hid_bpf_ctx *ctx)
@@ -77,6 +79,16 @@ static void set_fn_lock(struct hid_bpf_ctx *ctx, __u8 fn_lock)
 			   HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
 }
 
+static void set_touchpad_enable(struct hid_bpf_ctx *ctx, __u8 touchpad_enable)
+{
+	__u8 cmd[64] = {
+		0x5A, 0xF4, 0x00, 0x00, touchpad_enable,
+	};
+
+	hid_bpf_hw_request(ctx, cmd, sizeof(cmd),
+			   HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
+}
+
 static int work_callback(void *map, int *key, void *value)
 {
 	struct elem *e = (struct elem *)value;
@@ -97,11 +109,15 @@ static int work_callback(void *map, int *key, void *value)
 	} else if (*key == WORK_TYPE_FNLOCK) {
 		__u8 fn_lock = !current_fn_lock;
 		set_fn_lock(ctx, fn_lock);
+	} else if (*key == WORK_TYPE_TOUCHPAD) {
+		__u8 touchpad_enable = !current_touchpad_enable;
+		set_touchpad_enable(ctx, touchpad_enable);
 	} else if (*key == WORK_TYPE_INIT) {
 		set_init_unk_1(ctx);
 		set_init_unk_2(ctx);
 		set_brightness(ctx, current_backlight_brightness);
 		set_fn_lock(ctx, current_fn_lock);
+		set_touchpad_enable(ctx, current_touchpad_enable);
 	}
 
 	hid_bpf_release_context(ctx);
@@ -148,12 +164,18 @@ int BPF_PROG(handle_fkeys_fix_event, struct hid_bpf_ctx *hid_ctx)
 	__u8 key = data[1];
 
 	/*
+	 * Handled:
+	 *   ESC (FN Lock)        : 0x4E
+	 *   F4 (Backlight)       : 0xC7
+	 *   F5 (Brightness)      : 0x10
+	 *   F6 (Brightness)      : 0x20
+	 *   F11 (Touchpad On/Off): 0x6B
+	 *
 	 * Not yet handled:
 	 *
 	 *   F8  (Emoji key)      : 0x7E
 	 *   F9  (Microphone mute): 0x7C
 	 *   F10 (Camera On/Off)  : 0x85
-	 *   F11 (Touchpad On/Off): 0x6b
 	 *   F12 (MyASUS)         : 0x86
 	 *   Fn+F (Fan profile)   : 0x9D
 	 *
@@ -168,6 +190,10 @@ int BPF_PROG(handle_fkeys_fix_event, struct hid_bpf_ctx *hid_ctx)
 
 	case 0xC7:
 		schedule_key_work(WORK_TYPE_BACKLIGHT);
+		break;
+
+	case 0x6B:
+		schedule_key_work(WORK_TYPE_TOUCHPAD);
 		break;
 
 	case 0x10:
@@ -214,6 +240,8 @@ int BPF_PROG(handle_hw_request, struct hid_bpf_ctx *hid_ctx, unsigned char repor
 		current_backlight_brightness = data[4];
 	} else if (data[1] == 0xD0 && data[2] == 0x4E) {
 		current_fn_lock = data[3];
+	} else if (data[1] == 0xF4 && data[2] == 0x00 && data[3] == 0x00) {
+		current_touchpad_enable = data[4];
 	}
 
 	return 0;
