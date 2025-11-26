@@ -19,6 +19,7 @@ enum work_type {
 	WORK_TYPE_BACKLIGHT,
 	WORK_TYPE_FNLOCK,
 	WORK_TYPE_TOUCHPAD,
+	WORK_TYPE_MICMUTE,
 	WORK_TYPE_COUNT,
 };
 
@@ -36,8 +37,19 @@ struct {
 
 static __u8 current_backlight_brightness = 1;
 static bool current_fn_lock = false;
-static bool current_touchpad_enable = true;
+static bool current_mic_mute = false;
+static bool current_touchpad_enable = false;
 static bool change_next_vendor_keyup = false;
+
+static void set_init_unk_0(struct hid_bpf_ctx *ctx)
+{
+	__u8 cmd[64] = {
+		0x5A, 0x41, 0x53, 0x55, 0x53, 0x20, 0x54, 0x65, 0x63, 0x68, 0x2e, 0x49, 0x6E, 0x63, 0x2E, 0x00,
+	};
+
+	hid_bpf_hw_request(ctx, cmd, sizeof(cmd),
+			   HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
+}
 
 static void set_init_unk_1(struct hid_bpf_ctx *ctx)
 {
@@ -53,6 +65,16 @@ static void set_init_unk_2(struct hid_bpf_ctx *ctx)
 {
 	__u8 cmd[64] = {
 		0x5A, 0xD0, 0x8F, 0x01,
+	};
+
+	hid_bpf_hw_request(ctx, cmd, sizeof(cmd),
+			   HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
+}
+
+static void set_init_unk_3(struct hid_bpf_ctx *ctx)
+{
+	__u8 cmd[64] = {
+		0x5A, 0xD0, 0x85, 0xFF,
 	};
 
 	hid_bpf_hw_request(ctx, cmd, sizeof(cmd),
@@ -77,16 +99,32 @@ static void set_fn_lock(struct hid_bpf_ctx *ctx, __u8 fn_lock)
 
 	hid_bpf_hw_request(ctx, cmd, sizeof(cmd),
 			   HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
+
+	/* TODO: Emit fn_switch event */
 }
 
 static void set_touchpad_enable(struct hid_bpf_ctx *ctx, __u8 touchpad_enable)
 {
 	__u8 cmd[64] = {
-		0x5A, 0xF4, 0x00, 0x00, touchpad_enable,
+		0x5A, 0xF4, 0x6B, 0x00,
 	};
 
 	hid_bpf_hw_request(ctx, cmd, sizeof(cmd),
 			   HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
+
+	/* TODO: Emit touchpad disable event */
+}
+
+static void set_mic_mute(struct hid_bpf_ctx *ctx, __u8 mic_mute)
+{
+	__u8 cmd[64] = {
+		0x5A, 0xD0, 0x7C, mic_mute,
+	};
+
+	hid_bpf_hw_request(ctx, cmd, sizeof(cmd),
+			   HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
+
+	/* TODO: Emit mic_mute event */
 }
 
 static int work_callback(void *map, int *key, void *value)
@@ -107,17 +145,26 @@ static int work_callback(void *map, int *key, void *value)
 
 		set_brightness(ctx, brightness);
 	} else if (*key == WORK_TYPE_FNLOCK) {
-		__u8 fn_lock = !current_fn_lock;
+		__u8 fn_lock = current_fn_lock ? 0 : 1;
 		set_fn_lock(ctx, fn_lock);
 	} else if (*key == WORK_TYPE_TOUCHPAD) {
 		__u8 touchpad_enable = !current_touchpad_enable;
 		set_touchpad_enable(ctx, touchpad_enable);
+	} else if (*key == WORK_TYPE_MICMUTE) {
+		__u8 mic_mute = current_mic_mute ? 0 : 1;
+		set_mic_mute(ctx, mic_mute);
 	} else if (*key == WORK_TYPE_INIT) {
+		set_init_unk_0(ctx);
 		set_init_unk_1(ctx);
+		// set_fn_lock(ctx, 0);
+		// set_mic_mute(ctx, 0);
+		// set_brightness(ctx, 0);
 		set_init_unk_2(ctx);
+		set_init_unk_3(ctx);
+
 		set_brightness(ctx, current_backlight_brightness);
 		set_fn_lock(ctx, current_fn_lock);
-		set_touchpad_enable(ctx, current_touchpad_enable);
+		set_mic_mute(ctx, current_mic_mute);
 	}
 
 	hid_bpf_release_context(ctx);
@@ -192,6 +239,10 @@ int BPF_PROG(handle_fkeys_fix_event, struct hid_bpf_ctx *hid_ctx)
 		schedule_key_work(WORK_TYPE_BACKLIGHT);
 		break;
 
+	case 0x7C:
+		schedule_key_work(WORK_TYPE_MICMUTE);
+		break;
+
 	case 0x6B:
 		schedule_key_work(WORK_TYPE_TOUCHPAD);
 		break;
@@ -240,8 +291,10 @@ int BPF_PROG(handle_hw_request, struct hid_bpf_ctx *hid_ctx, unsigned char repor
 		current_backlight_brightness = data[4];
 	} else if (data[1] == 0xD0 && data[2] == 0x4E) {
 		current_fn_lock = data[3];
-	} else if (data[1] == 0xF4 && data[2] == 0x00 && data[3] == 0x00) {
-		current_touchpad_enable = data[4];
+	} else if (data[1] == 0xD0 && data[2] == 0x7C) {
+		current_mic_mute = data[3];
+	} else if (data[1] == 0xF4 && data[2] == 0x6B) {
+		current_touchpad_enable = data[3];
 	}
 
 	return 0;
